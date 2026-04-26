@@ -93,7 +93,7 @@ func (s SignalEnvelope) Normalized() (groupID, author, text string, isData, isRe
             }
         }
 
-        // Handle SyncMessages (messages sent by  from another device)
+        // Handle SyncMessages (messages sent from another device)
         if s.Envelope.SyncMessage != nil && s.Envelope.SyncMessage.SentMessage != nil {
             isData = true
             sent := s.Envelope.SyncMessage.SentMessage

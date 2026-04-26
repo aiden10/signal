@@ -32,6 +32,14 @@ func (s *SocketHandler) connect() error {
         return err
     }
     s.Conn = conn
+
+    if s.EventHandler != nil && s.EventHandler.Sender != nil {
+        if setter, ok := any(s.EventHandler.Sender).(interface{ SetConn(*websocket.Conn) }); ok {
+            setter.SetConn(conn)
+            s.Logger.Printf("sender socket injected")
+        }
+    }
+
     s.Logger.Printf("connected to websocket: %s", s.URL)
     return nil
 }
@@ -48,18 +56,20 @@ func (s *SocketHandler) Start() {
 
         msgType, payload, err := s.Conn.ReadMessage()
         if err != nil {
-            if closeErr, ok := err.(*websocket.CloseError); ok {
-                s.Logger.Printf("websocket close: code=%d text=%s", closeErr.Code, closeErr.Text)
-            } else {
-                s.Logger.Printf("websocket read failed: %v", err)
+            s.Logger.Printf("websocket read failed (type %d): %v", msgType, err)
+
+            // Clear injected sender conn on disconnect
+            if s.EventHandler != nil && s.EventHandler.Sender != nil {
+                if setter, ok := any(s.EventHandler.Sender).(interface{ SetConn(*websocket.Conn) }); ok {
+                    setter.SetConn(nil)
+                }
             }
+
             _ = s.Conn.Close()
             s.Conn = nil
             time.Sleep(1 * time.Second)
             continue
         }
-
-        s.Logger.Printf("raw ws message type=%d bytes=%d payload=%s", msgType, len(payload), string(payload))
 
         var msg models.SignalEnvelope
         if err := json.Unmarshal(payload, &msg); err != nil {
@@ -68,15 +78,11 @@ func (s *SocketHandler) Start() {
         }
 
         groupID, author, text, isData, isReceipt := msg.Normalized()
-        s.Logger.Printf("normalized: isData=%v isReceipt=%v groupID=%q author=%q text=%q", isData, isReceipt, groupID, author, text)
-
         switch {
         case isData:
             s.EventHandler.HandleDataMessage(groupID, author, text)
         case isReceipt:
             s.Logger.Printf("receipt event received")
-        default:
-            s.Logger.Printf("ignored event (not data/receipt)")
         }
     }
 }

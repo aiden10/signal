@@ -10,7 +10,7 @@ type LLMClient interface {
 }
 
 type MessageSender interface {
-    SendGroupMessage(groupID, text string) error
+    SendGroupMessage(text string) error
 }
 
 type EventHandler struct {
@@ -33,7 +33,7 @@ func (e *EventHandler) SendMessage(groupId, author, text string) {
     e.History.Record(groupId, author, text)
 
     if author == "LLM" && e.Sender != nil {
-        if err := e.Sender.SendGroupMessage(groupId, text); err != nil {
+        if err := e.Sender.SendGroupMessage(text); err != nil {
             fmt.Printf("failed sending group message: %v\n", err)
         }
     }
