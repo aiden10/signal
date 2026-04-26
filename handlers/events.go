@@ -41,10 +41,10 @@ func (e *EventHandler) SendMessage(groupId, author, text string) {
 
 func (e *EventHandler) HandleDataMessage(groupId, author, text string) {
     fmt.Printf("Message received")
-    if e.targetGroup != "" && groupId != e.targetGroup { 
-        fmt.Printf("Not checking message because it was sent to a non-target group")
-        return
-    }
+    // if e.targetGroup != "" && groupId != e.targetGroup { 
+    //     fmt.Printf("Not checking message because it was sent to a non-target group")
+    //     return
+    // }
     e.History.Record(groupId, author, text)
 
     if strings.Contains(strings.ToLower(text), "@gemini") {
