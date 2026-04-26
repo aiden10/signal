@@ -36,6 +36,16 @@ func (c *SignalClient) SendGroupMessage(groupID, text string) error {
         "groupId": groupID,
         "number":  c.PhoneNumber,
     }
+    
+    // If recipientID starts with 'group.', use 'groupId', otherwise use 'recipients' (for DMs)
+    if strings.HasPrefix(recipientID, "group.") {
+        body["groupId"] = recipientID
+    } else if recipientID != "" {
+        body["recipients"] = []string{recipientID}
+    } else {
+        // If we messaged ourselves and groupID is empty, send back to ourselves
+        body["recipients"] = []string{c.PhoneNumber}
+    }
 
     raw, err := json.Marshal(body)
     if err != nil {
