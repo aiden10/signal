@@ -36,12 +36,12 @@ func (c *SignalClient) SendGroupMessage(groupID, text string) error {
         "number":  c.PhoneNumber,
     }
 
-    if strings.HasPrefix(groupID, "group.") {
+    if strings.HasPrefix(groupID, "group.") || strings.HasSuffix(groupID, "=") {
         body["groupId"] = groupID
-    } else if groupID != "" {
+    } else if groupID != "" && strings.HasPrefix(groupID, "+") {
         body["recipients"] = []string{groupID}
     } else {
-        // If we messaged ourselves and groupID is empty, send back to ourselves
+        // Default to self for empty or local IDs
         body["recipients"] = []string{c.PhoneNumber}
     }
 
