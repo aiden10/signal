@@ -46,14 +46,20 @@ func (s *SocketHandler) Start() {
             }
         }
 
-        _, payload, err := s.Conn.ReadMessage()
+        msgType, payload, err := s.Conn.ReadMessage()
         if err != nil {
-            s.Logger.Printf("websocket read failed: %v", err)
+            if closeErr, ok := err.(*websocket.CloseError); ok {
+                s.Logger.Printf("websocket close: code=%d text=%s", closeErr.Code, closeErr.Text)
+            } else {
+                s.Logger.Printf("websocket read failed: %v", err)
+            }
             _ = s.Conn.Close()
             s.Conn = nil
             time.Sleep(1 * time.Second)
             continue
         }
+
+        s.Logger.Printf("raw ws message type=%d bytes=%d payload=%s", msgType, len(payload), string(payload))
 
         var msg models.SignalEnvelope
         if err := json.Unmarshal(payload, &msg); err != nil {
@@ -62,12 +68,15 @@ func (s *SocketHandler) Start() {
         }
 
         groupID, author, text, isData, isReceipt := msg.Normalized()
+        s.Logger.Printf("normalized: isData=%v isReceipt=%v groupID=%q author=%q text=%q", isData, isReceipt, groupID, author, text)
 
         switch {
         case isData:
             s.EventHandler.HandleDataMessage(groupID, author, text)
         case isReceipt:
             s.Logger.Printf("receipt event received")
+        default:
+            s.Logger.Printf("ignored event (not data/receipt)")
         }
     }
 }
