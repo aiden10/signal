@@ -14,6 +14,18 @@ type Envelope struct {
     Source         string       `json:"source,omitempty"`
     DataMessage    *DataMessage `json:"dataMessage,omitempty"`
     ReceiptMessage *Receipt     `json:"receiptMessage,omitempty"`
+    SyncMessage    *SyncMessage `json:"syncMessage,omitempty"`
+}
+
+type SyncMessage struct {
+    SentMessage *SentMessage `json:"sentMessage,omitempty"`
+}
+
+type SentMessage struct {
+    Destination string       `json:"destination,omitempty"`
+    Message     string       `json:"message,omitempty"`
+    GroupID     string       `json:"groupId,omitempty"`
+    GroupInfo   *GroupInfo   `json:"groupInfo,omitempty"`
 }
 
 type DataMessage struct {
@@ -61,6 +73,8 @@ func (s SignalEnvelope) Normalized() (groupID, author, text string, isData, isRe
         if author == "" {
             author = s.Envelope.Source
         }
+        
+        // Handle standard DataMessages
         if s.Envelope.DataMessage != nil {
             isData = true
             if text == "" {
@@ -78,6 +92,23 @@ func (s SignalEnvelope) Normalized() (groupID, author, text string, isData, isRe
                 }
             }
         }
+
+        // Handle SyncMessages (messages sent by  from another device)
+        if s.Envelope.SyncMessage != nil && s.Envelope.SyncMessage.SentMessage != nil {
+            isData = true
+            sent := s.Envelope.SyncMessage.SentMessage
+            if text == "" {
+                text = sent.Message
+            }
+            if groupID == "" {
+                if sent.GroupID != "" {
+                    groupID = sent.GroupID
+                } else if sent.GroupInfo != nil {
+                    groupID = sent.GroupInfo.GroupID
+                }
+            }
+        }
+
         if s.Envelope.ReceiptMessage != nil {
             isReceipt = true
         }
