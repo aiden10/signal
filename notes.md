@@ -1,9 +1,7 @@
 
-When a message in specific group chat is received, check the message contents. If it contains a certain string, i.e "@gemini", then send a request to gemini along with the past n messages, and then send the response to the group chat. Since I can't get the previous n messages easily, I need to save them as they come in myself. 
+# Issues
+Currently listens to messages in all chats and only sends to one chat. Need to store both internal and external IDs. 
 
-# Structure
-- SocketHandler, establishes socket connection, depending on the message type, calls a different function
-- EventHandler, defines functions for different messages
-- HistoryHandler, functions for reading previous messages and recording messages
-- Events, define the different events
+For some reason, the group ID that is sent along the event cannot be used when sending messages to that group because you need the external ID instead. To get around this, I only ever send to one chat and listen to all, but ideally I would send to the chat where the gemini message was sent from. So I need a way to get the external ID from the internal one. 
 
+What I can do is fetch localhost:8080/v1/groups/+16479234271 whenever a message containing @gemini is received and then iterate over each group to find the corresponding external ID and store it in a map. Then, I can pass that ID to the SendGroupMessage function.
