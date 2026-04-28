@@ -27,11 +27,11 @@ func NewSignalClient(baseURL, phoneNumber, targetGroup string, logger *log.Logge
     }
 }
 
-func (c *SignalClient) SendMessage(text string) error {
+func (c *SignalClient) SendMessage(text, groupId string) error {
     body := map[string]any{
         "message":    text,
         "number":     c.PhoneNumber,
-        "recipients": []string{c.TargetGroup},
+        "recipients": []string{groupId},
     }
 
     raw, err := json.Marshal(body)

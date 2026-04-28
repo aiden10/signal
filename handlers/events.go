@@ -3,6 +3,8 @@ package handlers
 import (
     "fmt"
     "strings"
+
+    "signal/utils"
 )
 
 type LLMClient interface {
@@ -10,7 +12,7 @@ type LLMClient interface {
 }
 
 type MessageSender interface {
-    SendMessage(text string) error
+    SendMessage(text, groupId string) error
 }
 
 type EventHandler struct {
@@ -32,10 +34,8 @@ func NewEventHandler(history *HistoryHandler, llm LLMClient, sender MessageSende
 }
 
 func (e *EventHandler) SendMessage(groupId, author, text string) {
-    e.History.Record(groupId, author, text)
-
-    if author == "LLM" && e.Sender != nil {
-        if err := e.Sender.SendMessage(text); err != nil {
+    if author == "Bot" && e.Sender != nil {
+        if err := e.Sender.SendMessage(text, groupId); err != nil {
             fmt.Printf("failed sending group message: %v\n", err)
         }
     }
@@ -43,16 +43,17 @@ func (e *EventHandler) SendMessage(groupId, author, text string) {
 
 func (e *EventHandler) HandleDataMessage(groupId, author, text string) {
     fmt.Printf("Message received")
-    // if e.targetGroup != "" && groupId != e.targetGroup { 
-    //     fmt.Printf("Not checking message because it was sent to a non-target group")
-    //     return
-    // }
     e.History.Record(groupId, author, text)
-
+    
     if strings.Contains(strings.ToLower(text), "@gemini") {
+        sendingId, err := utils.FindSendingId(groupId)
+        if e.targetGroup != "" && sendingId != e.targetGroup { 
+            fmt.Printf("Not checking message because it was sent to a non-target group")
+            return
+        }
         context := e.History.GetContext(groupId)
         fmt.Printf("Generating response for group %s using %d messages of context\n", groupId, len(context))
         response := e.LLM.GenerateResponse(context, text)
-        e.SendMessage(groupId, "LLM", response)
+        e.SendMessage(sendingId, "Bot", response)
     }
 }

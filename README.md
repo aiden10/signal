@@ -40,13 +40,6 @@ GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta/models/gemini-f
 
 Then run `go mod download` to download the dependencies and `go run .` to start the bot.
 
-# Issues
-Currently listens to messages in all chats and only sends to one chat. Need to store both internal and external IDs. 
-
-For some reason, the group ID that is sent along the event cannot be used when sending messages to that group because you need the external ID instead. To get around this, I only ever send to one chat and listen to all, but ideally I would send to the chat where the Gemini message was sent from. So I need a way to get the external ID from the internal one. 
-
-What I can do is fetch `localhost:8080/v1/groups/+{phone_number}` whenever a message containing `@gemini` is received and then iterate over each group to find the corresponding external ID and store it in a map. Then, I can pass that ID to the SendGroupMessage function.
-
 # Improvements
 ## Memory
 Memory is currently just in the form of providing the n most recent messages in each prompt. This isn't ideal because it means older details will always be lost, and it's pretty limited. Increasing n would help, but also result in more tokens being used. The context window size is also message based rather than character based.
