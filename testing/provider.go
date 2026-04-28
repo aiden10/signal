@@ -1,0 +1,3 @@
+/*
+Provides mock data through functions.  
+*/

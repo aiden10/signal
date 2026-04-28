@@ -10,7 +10,7 @@ type LLMClient interface {
 }
 
 type MessageSender interface {
-    SendGroupMessage(text string) error
+    SendMessage(text string) error
 }
 
 type EventHandler struct {
@@ -18,14 +18,16 @@ type EventHandler struct {
     LLM     LLMClient
     Sender  MessageSender
     targetGroup string
+    phone string
 }
 
-func NewEventHandler(history *HistoryHandler, llm LLMClient, sender MessageSender, targetGroup string) *EventHandler {
+func NewEventHandler(history *HistoryHandler, llm LLMClient, sender MessageSender, targetGroup, phone string) *EventHandler {
     return &EventHandler{
         History: history,
         LLM:     llm,
         Sender:  sender,
         targetGroup: targetGroup,
+        phone: phone,
     }
 }
 
@@ -33,7 +35,7 @@ func (e *EventHandler) SendMessage(groupId, author, text string) {
     e.History.Record(groupId, author, text)
 
     if author == "LLM" && e.Sender != nil {
-        if err := e.Sender.SendGroupMessage(text); err != nil {
+        if err := e.Sender.SendMessage(text); err != nil {
             fmt.Printf("failed sending group message: %v\n", err)
         }
     }

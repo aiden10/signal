@@ -1,101 +1,82 @@
 package main
 
 import (
-    "bytes"
-    "encoding/json"
+    "context"
     "fmt"
-    "net/http"
     "strings"
-    "time"
 
+    "google.golang.org/genai"
     "signal/handlers"
 )
 
 type LLMProvider struct {
-    Key      string
-    Endpoint string
+    client         *genai.Client
+    ChatModel      string
+    EmbeddingModel  string
 }
 
-func NewLLMProvider(key, endpoint string) *LLMProvider {
+func NewLLMProvider(ctx context.Context, key, chatModel, embeddingModel string) (*LLMProvider, error) {
+    client, err := genai.NewClient(ctx, &genai.ClientConfig{
+        APIKey:  key,
+        Backend: genai.BackendGeminiAPI,
+    })
+    if err != nil {
+        return nil, err
+    }
+
     return &LLMProvider{
-        Key:      key,
-        Endpoint: endpoint,
-    }
+        client:        client,
+        ChatModel:     chatModel,
+        EmbeddingModel: embeddingModel,
+    }, nil
 }
 
-func (provider *LLMProvider) GenerateResponse(context []handlers.Message, initialPrompt string) string {
-    if provider.Endpoint == "" {
-        return "LLM endpoint is not configured."
-    }
+func (p *LLMProvider) GenerateResponse(history []handlers.Message, initialPrompt string) (string) {
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
 
-    prompt := buildPrompt(context, initialPrompt)
+    prompt := buildPrompt(history, initialPrompt)
 
-    reqBody := map[string]any{
-        "contents": []map[string]any{
-            {
-                "parts": []map[string]string{
-                    {"text": prompt},
-                },
-            },
-        },
-    }
-
-    raw, err := json.Marshal(reqBody)
+    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), nil)
     if err != nil {
-        return "I couldn't serialize the LLM request."
+        return fmt.Sprintf("Error generating response: %v", err)
     }
 
-    url := provider.Endpoint
-    if provider.Key != "" && !strings.Contains(url, "key=") {
-        sep := "?"
-        if strings.Contains(url, "?") {
-            sep = "&"
-        }
-        url += sep + "key=" + provider.Key
+    if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+        return "Error parsing result"
     }
 
-    req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
+    text, ok := result.Candidates[0].Content.Parts[0].(*genai.Part)
+    if !ok {
+        return "Unexpected Response format"
+    }
+
+    return strings.TrimSpace(text.Text)
+}
+
+func (p *LLMProvider) EmbedText(text string) ([]float32, error) {
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    contents := []*genai.Content{
+        genai.NewContentFromText(text, genai.RoleUser),
+    }
+
+    result, err := p.client.Models.EmbedContent(ctx, p.EmbeddingModel, contents, nil)
     if err != nil {
-        return "I couldn't create the LLM request."
-    }
-    req.Header.Set("Content-Type", "application/json")
-
-    client := &http.Client{Timeout: 25 * time.Second}
-    resp, err := client.Do(req)
-    if err != nil {
-        return "I couldn't reach the LLM service."
-    }
-    defer resp.Body.Close()
-
-    var out struct {
-        Candidates []struct {
-            Content struct {
-                Parts []struct {
-                    Text string `json:"text"`
-                } `json:"parts"`
-            } `json:"content"`
-        } `json:"candidates"`
-        Error *struct {
-            Message string `json:"message"`
-        } `json:"error"`
+        return nil, err
     }
 
-    if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-        return "I couldn't parse the LLM response."
-    }
-    if out.Error != nil && out.Error.Message != "" {
-        return fmt.Sprintf("LLM error: %s", out.Error.Message)
-    }
-    if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
-        return "No response came back from the LLM."
+    if len(result.Embeddings) == 0 {
+        return nil, fmt.Errorf("no embeddings returned")
     }
 
-    return strings.TrimSpace(out.Candidates[0].Content.Parts[0].Text)
+    return result.Embeddings[0].Values, nil
 }
 
 func buildPrompt(context []handlers.Message, initialPrompt string) string {
     var b strings.Builder
-    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters.\n\n")
+    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound more human.\n\n")
     b.WriteString("Recent messages:\n")
     for _, m := range context {
         b.WriteString("- ")
