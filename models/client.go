@@ -1,9 +1,16 @@
 package models
 
 import (
-	"strings"
-	"time"
-	"net/http"
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    "strings"
+    "sync"
+    "time"
+
+    "github.com/gorilla/websocket"
 )
 
 type SignalClient struct {
@@ -39,13 +46,21 @@ func (c *SignalClient) SendMessage(text, groupId string) error {
         return fmt.Errorf("marshal body: %w", err)
     }
 
-    req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/v2/send", bytes.NewReader(raw))
+    url := c.BaseURL + "/v2/send"
+
+    req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
+
     if err != nil {
         return fmt.Errorf("create request: %w", err)
     }
+    
     req.Header.Set("Content-Type", "application/json")
 
+    log.Printf("Attempting to send message to URL: %s", url)
+    log.Printf("Body: %s", string(raw))
+
     resp, err := c.HTTPClient.Do(req)
+    
     if err != nil {
         return fmt.Errorf("do request: %w", err)
     }

@@ -8,6 +8,7 @@ import (
 
     "signal/handlers"
     "signal/models"
+    "signal/llm"
 )
 
 func loadDotEnv(path string) error {
@@ -53,7 +54,7 @@ func main() {
     history := handlers.NewHistoryHandler(20)
     
     ctx := context.Background()
-    llm, err := NewLLMProvider(ctx, os.Getenv("GEMINI_API_KEY"), os.Getenv("LLM_MODEL"), os.Getenv("EMBEDDING_MODEL"))
+    llm, err := llm.NewLLMProvider(ctx, os.Getenv("GEMINI_API_KEY"), os.Getenv("LLM_MODEL"), os.Getenv("EMBEDDING_MODEL"))
     if err != nil {
         logger.Fatal(err)
     }
