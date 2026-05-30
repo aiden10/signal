@@ -1,9 +1,11 @@
-package main
+package llm
 
 import (
     "context"
     "fmt"
     "strings"
+    "time"
+    "log"
 
     "google.golang.org/genai"
     "signal/handlers"
@@ -46,12 +48,13 @@ func (p *LLMProvider) GenerateResponse(history []handlers.Message, initialPrompt
         return "Error parsing result"
     }
 
-    text, ok := result.Candidates[0].Content.Parts[0].(*genai.Part)
-    if !ok {
-        return "Unexpected Response format"
+    part := result.Candidates[0].Content.Parts[0]
+    if part == nil || part.Text == "" {
+        return "Unexpected response format"
     }
 
-    return strings.TrimSpace(text.Text)
+    log.Println("Generated Response: " + strings.TrimSpace(part.Text))
+    return strings.TrimSpace(part.Text)
 }
 
 func (p *LLMProvider) EmbedText(text string) ([]float32, error) {

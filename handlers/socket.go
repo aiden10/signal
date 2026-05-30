@@ -80,7 +80,7 @@ func (s *SocketHandler) Start() {
         groupID, author, text, isData, isReceipt := msg.Normalized()
         switch {
         case isData:
-            s.EventHandler.HandleDataMessage(groupID, author, text)
+            s.EventHandler.HandleDataMessage(groupID, author, text, false)
         case isReceipt:
             s.Logger.Printf("receipt event received")
         }
