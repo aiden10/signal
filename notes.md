@@ -16,5 +16,5 @@ And then the "GetContext" function in history.go will retrieve all vectors, load
 
 Once I have the closest n vectors, I can then retrieve the corresponding texts, and add those to the prompt which is sent to Gemini.
 
-# Commands
-ssh -L 8080:localhost:8080 -i "ssh.key" ubuntu@aiden.photo
+# CI/CD
+Possible to setup pipeline to run tests. Just need to add ssh key and .env to GitHub and create yaml file.
