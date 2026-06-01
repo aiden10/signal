@@ -53,8 +53,11 @@ func (db *Database) InsertMemory(groupId, author, content string, vector []float
     blob := float32SliceToBytes(vector)
     _, err := db.conn.Exec(
         "INSERT INTO memory (group_id, author, content, vector, created_at) VALUES (?, ?, ?, ?, ?)",
-        groupId, content, blob, time.Now(),
+        groupId, author, content, blob, time.Now(),
     )
+	if err != nil {
+        log.Printf("Error creating record: %v", err)
+    }
     return err
 }
 
