@@ -8,7 +8,7 @@ import (
     "log"
 
     "google.golang.org/genai"
-    "signal/handlers"
+    "signal/models"
 )
 
 type LLMProvider struct {
@@ -33,11 +33,11 @@ func NewLLMProvider(ctx context.Context, key, chatModel, embeddingModel string) 
     }, nil
 }
 
-func (p *LLMProvider) GenerateResponse(history []handlers.Message, initialPrompt string) (string) {
+func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models.Message, initialPrompt string) (string) {
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
 
-    prompt := buildPrompt(history, initialPrompt)
+    prompt := buildPrompt(relevantMessages, recentMessages, initialPrompt)
 
     result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), nil)
     if err != nil {
@@ -57,7 +57,7 @@ func (p *LLMProvider) GenerateResponse(history []handlers.Message, initialPrompt
     return strings.TrimSpace(part.Text)
 }
 
-func (p *LLMProvider) EmbedText(text string) ([]float32, error) {
+func (p *LLMProvider) GenerateEmbedding(text string) ([]float32, error) {
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
 
@@ -77,11 +77,19 @@ func (p *LLMProvider) EmbedText(text string) ([]float32, error) {
     return result.Embeddings[0].Values, nil
 }
 
-func buildPrompt(context []handlers.Message, initialPrompt string) string {
+func buildPrompt(relevantMessages, recentMessages []models.Message, initialPrompt string) string {
     var b strings.Builder
-    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound more human.\n\n")
+    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound human.\n\n")
     b.WriteString("Recent messages:\n")
-    for _, m := range context {
+    for _, m := range recentMessages {
+        b.WriteString("- ")
+        b.WriteString(m.Author)
+        b.WriteString(": ")
+        b.WriteString(m.Text)
+        b.WriteString("\n")
+    }
+    b.WriteString("Relevant messages:\n")
+    for _, m := range relevantMessages {
         b.WriteString("- ")
         b.WriteString(m.Author)
         b.WriteString(": ")

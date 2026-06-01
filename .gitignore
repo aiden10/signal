@@ -1,3 +1,5 @@
 .env
 /signal-data
 ssh.key
+
+*.db

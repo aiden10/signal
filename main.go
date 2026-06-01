@@ -9,6 +9,7 @@ import (
     "signal/handlers"
     "signal/models"
     "signal/llm"
+    "signal/db"
 )
 
 func loadDotEnv(path string) error {
@@ -51,16 +52,21 @@ func main() {
         logger.Fatal("SERVER_URL is required")
     }
 
-    history := handlers.NewHistoryHandler(20)
-    
     ctx := context.Background()
     llm, err := llm.NewLLMProvider(ctx, os.Getenv("GEMINI_API_KEY"), os.Getenv("LLM_MODEL"), os.Getenv("EMBEDDING_MODEL"))
     if err != nil {
         logger.Fatal(err)
     }
-
+    
+    database, err := db.NewDatabase("memory.db")
+    if err != nil {
+        log.Fatal("Failed to open database: ", err)
+    }
+    if err := database.Migrate(); err != nil {
+        log.Fatal("Failed to migrate database: ", err)
+    }
+    history := handlers.NewHistoryHandler(database)
     sender := models.NewSignalClient(serverURL, phone, targetGroup, logger)
-
     eventHandler := handlers.NewEventHandler(history, llm, sender, targetGroup, phone)
     socketHandler := handlers.NewSocketHandler(socketURL, eventHandler, logger)
 

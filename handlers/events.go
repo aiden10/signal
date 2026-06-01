@@ -3,11 +3,14 @@ package handlers
 import (
     "log"
     "strings"
+
     "signal/utils"
+    "signal/models"
 )
 
 type LLMClient interface {
-    GenerateResponse(context []Message, initialPrompt string) string
+    GenerateResponse(relevantMessages, recentMessages []models.Message, initialPrompt string) string
+    GenerateEmbedding(text string) ([]float32, error)
 }
 
 type MessageSender interface {
@@ -42,29 +45,46 @@ func (e *EventHandler) SendMessage(groupId, author, text string) {
 
 func (e *EventHandler) HandleDataMessage(groupId, author, text string, inTest bool) error {
     log.Printf("Message received")
-    e.History.Record(groupId, author, text)
     
+    var sendingId = groupId
+    var err error
+
+    if !inTest {
+        sendingId, err = utils.FindSendingId(groupId)
+    }
+    
+    if e.targetGroup != "" && sendingId != e.targetGroup {
+        log.Printf("Not checking message because it was sent to a non-target group")
+        return nil
+    }
+    
+    log.Printf("Generating embedding")
+    vector, embeddingErr := e.LLM.GenerateEmbedding(text)
+
+    if embeddingErr != nil {
+        log.Printf("failed to generate message embedding: %v\n", embeddingErr)
+    }
+
+    e.History.Record(groupId, author, text, vector)
+
     if strings.Contains(strings.ToLower(text), "@gemini") {
-        var sendingId = groupId
-        var err error
-
-        if !inTest {
-            sendingId, err = utils.FindSendingId(groupId)
-        }
-
-        if e.targetGroup != "" && sendingId != e.targetGroup { 
-            log.Printf("Not checking message because it was sent to a non-target group")
-            return nil
-        }
-
         if err != nil {
             log.Printf("Error finding sending id: %v", err)
             return err
         }
 
-        context := e.History.GetContext(groupId)
-        log.Printf("Generating response for group %s using %d messages of context\n", groupId, len(context))
-        response := e.LLM.GenerateResponse(context, text)
+        relevant, recent := e.History.GetContext(groupId, vector)
+        log.Printf("Generating response with %d relevant messages and %d recent messages", len(relevant), len(recent))
+
+        response := e.LLM.GenerateResponse(relevant, recent, text)
+        
+        geminiResponseVector, geminiEmbeddingError := e.LLM.GenerateEmbedding(response)
+        if geminiEmbeddingError != nil {
+            log.Printf("failed to generate message embedding: %v\n", geminiEmbeddingError)
+        }
+
+        e.History.Record(groupId, "Bot", response, geminiResponseVector)
+
         e.SendMessage(sendingId, "Bot", response)
     }
     return nil

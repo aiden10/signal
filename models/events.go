@@ -35,6 +35,11 @@ type DataMessage struct {
     GroupInfo *GroupInfo `json:"groupInfo,omitempty"`
 }
 
+type Message struct {
+	Author string
+	Text string
+}
+
 type GroupInfo struct {
     GroupID string `json:"groupId,omitempty"`
 }

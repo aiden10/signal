@@ -15,6 +15,7 @@ import (
     "signal/handlers"
     "signal/models"
     "signal/llm"
+    "signal/db"
 )
 
 var sshTunnel *exec.Cmd
@@ -78,12 +79,23 @@ func newTestSuite(t *testing.T) *TestSuite {
     serverURL := os.Getenv("TESTING_SERVER_URL")
     phone := os.Getenv("TESTING_PHONE_NUMBER")
     targetGroup := Data.TestGroupId
+
     sender := models.NewSignalClient(serverURL, phone, targetGroup, logger)
-    history := handlers.NewHistoryHandler(20)
+    database, err := db.NewDatabase("../test_memory.db")
+    if err != nil {
+        log.Fatal("Failed to open database: ", err)
+    }
+    if err := database.Migrate(); err != nil {
+        log.Fatal("Failed to migrate database: ", err)
+    }    
+    
+    history := handlers.NewHistoryHandler(database)
     llmProvider, err := llm.NewLLMProvider(ctx, os.Getenv("GEMINI_API_KEY"), os.Getenv("LLM_MODEL"), os.Getenv("EMBEDDING_MODEL"))
+    
     if err != nil {
         t.Fatalf("failed to create LLM provider: %v", err)
     }
+    
     return &TestSuite{
         EventHandler: handlers.NewEventHandler(history, llmProvider, sender, targetGroup, phone),
         Sender:       sender,

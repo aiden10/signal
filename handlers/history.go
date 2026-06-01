@@ -1,41 +1,73 @@
 package handlers
 
-import "sync"
-
-type Message struct {
-	Author string
-	Text string
-}
+import (
+	"log"
+	"math"
+	"sort"
+	
+	"signal/db"
+	"signal/models"
+)
 
 type HistoryHandler struct {
-	mu sync.RWMutex
-	Messages map[string][]Message
-	MessageLimit int
+	database *db.Database
 }
 
-func NewHistoryHandler(limit int) *HistoryHandler {
+func NewHistoryHandler(database *db.Database) *HistoryHandler {
 	return &HistoryHandler {
-		Messages: make(map[string][]Message),
-		MessageLimit: limit,
+		database: database,
 	}
 }
 
-func (h *HistoryHandler) Record(groupId, author, text string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.Messages[groupId] = append(h.Messages[groupId], Message{
-		Author: author, 
-		Text: text,
-	})
-	
-	if len(h.Messages[groupId]) > h.MessageLimit {
-		h.Messages[groupId] = h.Messages[groupId][1:]
-	}
+func (h *HistoryHandler) Record(groupId, author, text string, vector []float32) {
+	h.database.InsertMemory(groupId, author, text, vector)
 }
 
-func (h *HistoryHandler) GetContext(groupId string) []Message {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.Messages[groupId]
+func cosineSimilarity(a, b []float32) float64 {
+    var dot, normA, normB float64
+    for i := range a {
+        dot += float64(a[i]) * float64(b[i])
+        normA += float64(a[i]) * float64(a[i])
+        normB += float64(b[i]) * float64(b[i])
+    }
+
+    if normA == 0 || normB == 0 {
+        return 0
+    }
+    return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+func (h *HistoryHandler) GetContext(groupId string, queryVec []float32) ([]models.Message, []models.Message) {
+    memories, err := h.database.GetAllMemories(groupId)
+    if err != nil {
+        log.Printf("Error getting memories: %v", err)
+        memories = []db.Memory{}
+    }
+
+    recent := h.database.GetRecentMessages(groupId, 20)
+
+    type scored struct {
+        msg   models.Message
+        score float64
+    }
+
+    var results []scored
+    for _, m := range memories {
+        score := cosineSimilarity(queryVec, m.Vector)
+        results = append(results, scored{
+            msg:   models.Message{Author: m.Author, Text: m.Content},
+            score: score,
+        })
+    }
+
+    sort.Slice(results, func(i, j int) bool {
+        return results[i].score > results[j].score
+    })
+
+    var relevant []models.Message
+    for i := 0; i < 10 && i < len(results); i++ {
+        relevant = append(relevant, results[i].msg)
+    }
+
+    return relevant, recent
 }
