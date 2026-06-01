@@ -53,6 +53,11 @@ func (h *HistoryHandler) GetContext(groupId string, queryVec []float32) ([]model
 
     var results []scored
     for _, m := range memories {
+        if len(m.Vector) == 0 || len(m.Vector) != len(queryVec) {
+            log.Println("Skipping cosine similarity because vector has no related memories")
+            continue // skip malformed entries
+        }
+        
         score := cosineSimilarity(queryVec, m.Vector)
         results = append(results, scored{
             msg:   models.Message{Author: m.Author, Text: m.Content},

@@ -90,6 +90,7 @@ func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models
     defer cancel()
 
     prompt := p.buildPrompt(relevantMessages, recentMessages, initialPrompt)
+    p.pickSystemPrompt()
 
     result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), nil)
     if err != nil {
