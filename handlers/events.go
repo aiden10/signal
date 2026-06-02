@@ -1,102 +1,91 @@
-package llm
+package handlers
 
 import (
-    "context"
-    "fmt"
-    "strings"
-    "time"
     "log"
+    "strings"
 
-    "google.golang.org/genai"
+    "signal/utils"
     "signal/models"
 )
 
-type LLMProvider struct {
-    client         *genai.Client
-    ChatModel      string
-    EmbeddingModel  string
+type LLMClient interface {
+    GenerateResponse(relevantMessages, recentMessages []models.Message, initialPrompt string) string
+    GenerateEmbedding(text string) ([]float32, error)
 }
 
-func NewLLMProvider(ctx context.Context, key, chatModel, embeddingModel string) (*LLMProvider, error) {
-    client, err := genai.NewClient(ctx, &genai.ClientConfig{
-        APIKey:  key,
-        Backend: genai.BackendGeminiAPI,
-    })
-    if err != nil {
-        return nil, err
-    }
-
-    return &LLMProvider{
-        client:        client,
-        ChatModel:     chatModel,
-        EmbeddingModel: embeddingModel,
-    }, nil
+type MessageSender interface {
+    SendMessage(text, groupId string) error
 }
 
-func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models.Message, initialPrompt string) (string) {
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-
-    prompt := buildPrompt(relevantMessages, recentMessages, initialPrompt)
-
-    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), nil)
-    if err != nil {
-        return fmt.Sprintf("Error generating response: %v", err)
-    }
-
-    if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
-        return "Error parsing result"
-    }
-
-    part := result.Candidates[0].Content.Parts[0]
-    if part == nil || part.Text == "" {
-        return "Unexpected response format"
-    }
-
-    log.Println("Generated Response: " + strings.TrimSpace(part.Text))
-    return strings.TrimSpace(part.Text)
+type EventHandler struct {
+    History *HistoryHandler
+    LLM     LLMClient
+    Sender  MessageSender
+    targetGroup string
+    phone string
 }
 
-func (p *LLMProvider) GenerateEmbedding(text string) ([]float32, error) {
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-
-    contents := []*genai.Content{
-        genai.NewContentFromText(text, genai.RoleUser),
+func NewEventHandler(history *HistoryHandler, llm LLMClient, sender MessageSender, targetGroup, phone string) *EventHandler {
+    return &EventHandler{
+        History: history,
+        LLM:     llm,
+        Sender:  sender,
+        targetGroup: targetGroup,
+        phone: phone,
     }
-
-    result, err := p.client.Models.EmbedContent(ctx, p.EmbeddingModel, contents, nil)
-    if err != nil {
-        return nil, err
-    }
-
-    if len(result.Embeddings) == 0 {
-        return nil, fmt.Errorf("no embeddings returned")
-    }
-
-    return result.Embeddings[0].Values, nil
 }
 
-func buildPrompt(relevantMessages, recentMessages []models.Message, initialPrompt string) string {
-    var b strings.Builder
-    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound more human. Do not inclue any markdown formatting and occasionally use emojis and slang.\n\n")
-    b.WriteString("Recent messages:\n")
-    for _, m := range recentMessages {
-        b.WriteString("- ")
-        b.WriteString(m.Author)
-        b.WriteString(": ")
-        b.WriteString(m.Text)
-        b.WriteString("\n")
+func (e *EventHandler) SendMessage(groupId, author, text string) {
+    if author == "Bot" && e.Sender != nil {
+        if err := e.Sender.SendMessage(text, groupId); err != nil {
+            log.Printf("failed sending group message: %v\n", err)
+        }
     }
-    b.WriteString("Relevant messages:\n")
-    for _, m := range relevantMessages {
-        b.WriteString("- ")
-        b.WriteString(m.Author)
-        b.WriteString(": ")
-        b.WriteString(m.Text)
-        b.WriteString("\n")
+}
+
+func (e *EventHandler) HandleDataMessage(groupId, author, text string, inTest bool) error {
+    log.Printf("Message received")
+    
+    var sendingId = groupId
+    var err error
+
+    if !inTest {
+        sendingId, err = utils.FindSendingId(groupId)
     }
-    b.WriteString("\nUser request:\n")
-    b.WriteString(initialPrompt)
-    return b.String()
+    
+    if e.targetGroup != "" && sendingId != e.targetGroup {
+        log.Printf("Not checking message because it was sent to a non-target group")
+        return nil
+    }
+    
+    log.Printf("Generating embedding")
+    vector, embeddingErr := e.LLM.GenerateEmbedding(text)
+
+    if embeddingErr != nil {
+        log.Printf("failed to generate message embedding: %v\n", embeddingErr)
+    }
+
+    e.History.Record(groupId, author, text, vector)
+
+    if strings.Contains(strings.ToLower(text), "@gemini") {
+        if err != nil {
+            log.Printf("Error finding sending id: %v", err)
+            return err
+        }
+
+        relevant, recent := e.History.GetContext(groupId, vector)
+        log.Printf("Generating response with %d relevant messages and %d recent messages", len(relevant), len(recent))
+
+        response := e.LLM.GenerateResponse(relevant, recent, text)
+        
+        geminiResponseVector, geminiEmbeddingError := e.LLM.GenerateEmbedding(response)
+        if geminiEmbeddingError != nil {
+            log.Printf("failed to generate message embedding: %v\n", geminiEmbeddingError)
+        }
+
+        e.History.Record(groupId, "Bot", response, geminiResponseVector)
+
+        e.SendMessage(sendingId, "Bot", response)
+    }
+    return nil
 }
