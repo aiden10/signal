@@ -38,8 +38,14 @@ func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models
     defer cancel()
 
     prompt := buildPrompt(relevantMessages, recentMessages, initialPrompt)
+    config := &genai.GenerateContentConfig{
+        Tools: []*genai.Tool{
+            {GoogleSearch: &genai.GoogleSearch{}},
+        },
+    }
+    
+    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), config)
 
-    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), nil)
     if err != nil {
         return fmt.Sprintf("Error generating response: %v", err)
     }
