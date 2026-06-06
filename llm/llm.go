@@ -38,8 +38,14 @@ func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models
     defer cancel()
 
     prompt := buildPrompt(relevantMessages, recentMessages, initialPrompt)
+    config := &genai.GenerateContentConfig{
+        Tools: []*genai.Tool{
+            {GoogleSearch: &genai.GoogleSearch{}},
+        },
+    }
+    
+    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), config)
 
-    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), nil)
     if err != nil {
         return fmt.Sprintf("Error generating response: %v", err)
     }
@@ -79,7 +85,7 @@ func (p *LLMProvider) GenerateEmbedding(text string) ([]float32, error) {
 
 func buildPrompt(relevantMessages, recentMessages []models.Message, initialPrompt string) string {
     var b strings.Builder
-    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound human.\n\n")
+    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound more human. Do not inclue any markdown formatting and occasionally use emojis and slang.\n\n")
     b.WriteString("Recent messages:\n")
     for _, m := range recentMessages {
         b.WriteString("- ")

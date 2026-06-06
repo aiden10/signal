@@ -11,3 +11,11 @@ func TestHandleDataMessage(t *testing.T) {
         t.Fatalf("HandleDataMessage failed: %v", err)
     }
 }
+
+func TestMessageRequiringSearch(t *testing.T) {
+	s := newTestSuite(t)
+	err := s.EventHandler.HandleDataMessage(s.Phone, Data.Username, Data.GeminiSearchQuestion, true)
+	if err != nil {
+        t.Fatalf("TestMessageRequiringSearch failed: %v", err)
+    }
+}
