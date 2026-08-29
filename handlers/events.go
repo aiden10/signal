@@ -45,46 +45,44 @@ func (e *EventHandler) SendMessage(groupId, author, text string) {
 
 func (e *EventHandler) HandleDataMessage(groupId, author, text string, inTest bool) error {
     log.Printf("Message received")
-    
+
     var sendingId = groupId
     var err error
-
     if !inTest {
         sendingId, err = utils.FindSendingId(groupId)
     }
-    
+
     if e.targetGroup != "" && sendingId != e.targetGroup {
         log.Printf("Not checking message because it was sent to a non-target group")
         return nil
     }
-    
+
+    var vector []float32
     log.Printf("Generating embedding")
-    vector, embeddingErr := e.LLM.GenerateEmbedding(text)
-
-    if embeddingErr != nil {
-        log.Printf("failed to generate message embedding: %v\n", embeddingErr)
+    if strings.TrimSpace(text) != "" {
+        var embeddingErr error
+        vector, embeddingErr = e.LLM.GenerateEmbedding(text)
+        if embeddingErr != nil {
+            log.Printf("failed to generate embedding: %v", embeddingErr)
+        } else {
+            e.History.Record(groupId, author, text, vector)
+        }
     }
-
-    e.History.Record(groupId, author, text, vector)
 
     if strings.Contains(strings.ToLower(text), "@gemini") {
         if err != nil {
             log.Printf("Error finding sending id: %v", err)
             return err
         }
-
         relevant, recent := e.History.GetContext(groupId, vector)
         log.Printf("Generating response with %d relevant messages and %d recent messages", len(relevant), len(recent))
-
         response := e.LLM.GenerateResponse(relevant, recent, text)
-        
+
         geminiResponseVector, geminiEmbeddingError := e.LLM.GenerateEmbedding(response)
         if geminiEmbeddingError != nil {
             log.Printf("failed to generate message embedding: %v\n", geminiEmbeddingError)
         }
-
         e.History.Record(groupId, "Bot", response, geminiResponseVector)
-
         e.SendMessage(sendingId, "Bot", response)
     }
     return nil
