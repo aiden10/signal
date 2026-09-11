@@ -53,7 +53,7 @@ Then run `go mod download` to download the dependencies and `go run .` to start 
 
 # Improvements
 ## Images
-Right now, I don't think it's able to see images. I don't know how this would work though. First, we'd need to get the image itself from the message, and then pass that to a vision model, and get the description of the image from that. However, I don't know if it's possible to get the image or if this approach of getting a description would work well.
+Right now, it's not able to see images. I could handle this a few different ways. First, I could get the image itself from the message, and then pass that to a vision model, and get the description of the image from that. However, I don't know exactly how images are shown through the API or if this approach of getting a description would work well. If images can be retrieved from messages, then I could also pass them to a vision language model and directly use that response.
 
 ## Replies
 On Instagram, Meta AI will automatically reply if you reply to one of its messages. Also if you reply to a message and include `@gemini`, it should instead use the message you replied to as the "prompt message". This would be convenient, but with the bot using my phone number it means that I would likely need to record all of the bot's messages and check the replied message against those. I also don't know if the API differentiates between replies and regular messages or not.
