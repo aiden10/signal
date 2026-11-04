@@ -4,6 +4,8 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 	
 	"signal/db"
 	"signal/models"
@@ -23,6 +25,36 @@ func (h *HistoryHandler) Record(groupId, author, text string, vector []float32) 
 	h.database.InsertMemory(groupId, author, text, vector)
 }
 
+func (h *HistoryHandler) RecordBotMessage(groupId, timestamp string) error {
+    parsed, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
+    if err != nil {
+        return err
+    }
+    return h.database.InsertBotMessage(groupId, parsed)
+}
+
+func (h *HistoryHandler) IsBotMessage(groupId string, timestamp int64) bool {
+    isBotMessage, err := h.database.IsBotMessage(groupId, timestamp)
+    if err != nil {
+        log.Printf("Error checking bot message: %v", err)
+        return false
+    }
+    return isBotMessage
+}
+
+func (h *HistoryHandler) RecordAttachments(groupId string, timestamp int64, attachments []models.Attachment) error {
+    return h.database.InsertMessageAttachments(groupId, timestamp, attachments)
+}
+
+func (h *HistoryHandler) GetAttachments(groupId string, timestamp int64) []models.Attachment {
+    attachments, err := h.database.GetMessageAttachments(groupId, timestamp)
+    if err != nil {
+        log.Printf("Error getting message attachments: %v", err)
+        return nil
+    }
+    return attachments
+}
+
 func cosineSimilarity(a, b []float32) float64 {
     var dot, normA, normB float64
     for i := range a {
@@ -37,14 +69,21 @@ func cosineSimilarity(a, b []float32) float64 {
     return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-func (h *HistoryHandler) GetContext(groupId string, queryVec []float32) ([]models.Message, []models.Message) {
+func (h *HistoryHandler) GetContext(groupId string, queryVec []float32, recentLimit, relevantLimit int) ([]models.Message, []models.Message) {
+    var recent []models.Message
+    if recentLimit > 0 {
+        recent = h.database.GetRecentMessages(groupId, recentLimit)
+    }
+
+    if relevantLimit <= 0 {
+        return nil, recent
+    }
+
     memories, err := h.database.GetAllMemories(groupId)
     if err != nil {
         log.Printf("Error getting memories: %v", err)
         memories = []db.Memory{}
     }
-
-    recent := h.database.GetRecentMessages(groupId, 20)
 
     type scored struct {
         msg   models.Message
@@ -70,7 +109,7 @@ func (h *HistoryHandler) GetContext(groupId string, queryVec []float32) ([]model
     })
 
     var relevant []models.Message
-    for i := 0; i < 10 && i < len(results); i++ {
+    for i := 0; i < relevantLimit && i < len(results); i++ {
         relevant = append(relevant, results[i].msg)
     }
 

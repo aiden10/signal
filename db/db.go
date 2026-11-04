@@ -46,7 +46,50 @@ func (db *Database) Migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `)
+    if err != nil {
+        return err
+    }
+
+    _, err = db.conn.Exec(`
+        CREATE TABLE IF NOT EXISTS settings (
+            group_id TEXT NOT NULL,
+            setting_key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (group_id, setting_key)
+        )
+    `)
+    if err != nil {
+        return err
+    }
+
+    _, err = db.conn.Exec(`
+        CREATE TABLE IF NOT EXISTS bot_messages (
+            group_id TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (group_id, timestamp)
+        )
+    `)
+    if err != nil {
+        return err
+    }
+
+    _, err = db.conn.Exec(`
+        CREATE TABLE IF NOT EXISTS message_attachments (
+            group_id TEXT NOT NULL,
+            message_timestamp INTEGER NOT NULL,
+            attachment_id TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT '',
+            filename TEXT NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (group_id, message_timestamp, attachment_id)
+        )
+    `)
     return err
+}
+
+func (db *Database) Close() error {
+    return db.conn.Close()
 }
 
 func (db *Database) InsertMemory(groupId, author, content string, vector []float32) error {
@@ -97,6 +140,112 @@ func (db *Database) GetAllMemories(groupId string) ([]Memory, error) {
         memories = append(memories, m)
     }
     return memories, nil
+}
+
+func (db *Database) GetSettings(groupId string) (map[string]string, error) {
+    rows, err := db.conn.Query(
+        "SELECT setting_key, value FROM settings WHERE group_id = ?", groupId,
+    )
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    settings := make(map[string]string)
+    for rows.Next() {
+        var key, value string
+        if err := rows.Scan(&key, &value); err != nil {
+            return nil, err
+        }
+        settings[key] = value
+    }
+    return settings, rows.Err()
+}
+
+func (db *Database) SetSetting(groupId, key, value string) error {
+    _, err := db.conn.Exec(`
+        INSERT INTO settings (group_id, setting_key, value) VALUES (?, ?, ?)
+        ON CONFLICT(group_id, setting_key) DO UPDATE SET value = excluded.value
+    `, groupId, key, value)
+    if err != nil {
+        log.Printf("Error saving setting: %v", err)
+    }
+    return err
+}
+
+func (db *Database) DeleteSettings(groupId string) error {
+    _, err := db.conn.Exec("DELETE FROM settings WHERE group_id = ?", groupId)
+    if err != nil {
+        log.Printf("Error deleting settings: %v", err)
+    }
+    return err
+}
+
+func (db *Database) InsertBotMessage(groupId string, timestamp int64) error {
+    _, err := db.conn.Exec(
+        "INSERT OR REPLACE INTO bot_messages (group_id, timestamp) VALUES (?, ?)",
+        groupId, timestamp,
+    )
+    if err != nil {
+        log.Printf("Error saving bot message: %v", err)
+    }
+    return err
+}
+
+func (db *Database) IsBotMessage(groupId string, timestamp int64) (bool, error) {
+    var count int
+    err := db.conn.QueryRow(
+        "SELECT COUNT(*) FROM bot_messages WHERE group_id = ? AND timestamp = ?",
+        groupId, timestamp,
+    ).Scan(&count)
+    if err != nil {
+        log.Printf("Error checking bot message: %v", err)
+        return false, err
+    }
+    return count > 0, nil
+}
+
+func (db *Database) InsertMessageAttachments(groupId string, timestamp int64, attachments []models.Attachment) error {
+    for _, attachment := range attachments {
+        if attachment.ID == "" {
+            continue
+        }
+
+        _, err := db.conn.Exec(`
+            INSERT OR REPLACE INTO message_attachments
+                (group_id, message_timestamp, attachment_id, content_type, filename, size)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `, groupId, timestamp, attachment.ID, attachment.ContentType, attachment.Filename, attachment.Size)
+        if err != nil {
+            log.Printf("Error saving message attachment: %v", err)
+            return err
+        }
+    }
+    return nil
+}
+
+func (db *Database) GetMessageAttachments(groupId string, timestamp int64) ([]models.Attachment, error) {
+    rows, err := db.conn.Query(`
+        SELECT attachment_id, content_type, filename, size
+        FROM message_attachments
+        WHERE group_id = ? AND message_timestamp = ?
+    `, groupId, timestamp)
+    if err != nil {
+        log.Printf("Error getting message attachments: %v", err)
+        return nil, err
+    }
+    defer rows.Close()
+
+    var attachments []models.Attachment
+    for rows.Next() {
+        var attachment models.Attachment
+        if err := rows.Scan(&attachment.ID, &attachment.ContentType, &attachment.Filename, &attachment.Size); err != nil {
+            log.Printf("Error getting message attachments: %v", err)
+            return nil, err
+        }
+        attachments = append(attachments, attachment)
+    }
+    return attachments, rows.Err()
 }
 
 func (db *Database) GetRecentMessages(groupId string, n int) []models.Message {

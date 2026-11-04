@@ -11,15 +11,27 @@ import (
     "signal/models"
 )
 
-type LLMProvider struct {
-    client         *genai.Client
-    ChatModel      string
+type Config struct {
+    GeminiAPIKey    string
+    DeepSeekAPIKey  string
+    DeepSeekModel   string
+    DeepSeekBaseURL string
     EmbeddingModel  string
 }
 
-func NewLLMProvider(ctx context.Context, key, chatModel, embeddingModel string) (*LLMProvider, error) {
+type LLMProvider struct {
+    client         *genai.Client
+    deepSeek       *DeepSeekClient
+    EmbeddingModel string
+}
+
+func NewLLMProvider(ctx context.Context, config Config) (*LLMProvider, error) {
+    if strings.TrimSpace(config.DeepSeekAPIKey) == "" {
+        return nil, fmt.Errorf("DEEPSEEK_API_KEY is not set")
+    }
+
     client, err := genai.NewClient(ctx, &genai.ClientConfig{
-        APIKey:  key,
+        APIKey:  config.GeminiAPIKey,
         Backend: genai.BackendGeminiAPI,
     })
     if err != nil {
@@ -27,40 +39,24 @@ func NewLLMProvider(ctx context.Context, key, chatModel, embeddingModel string) 
     }
 
     return &LLMProvider{
-        client:        client,
-        ChatModel:     chatModel,
-        EmbeddingModel: embeddingModel,
+        client:         client,
+        deepSeek:       NewDeepSeekClient(config.DeepSeekAPIKey, config.DeepSeekModel, config.DeepSeekBaseURL),
+        EmbeddingModel: config.EmbeddingModel,
     }, nil
 }
 
-func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models.Message, initialPrompt string) (string) {
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models.Message, images []models.Image, systemPrompt, initialPrompt string) string {
+    ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
     defer cancel()
 
     prompt := buildPrompt(relevantMessages, recentMessages, initialPrompt)
-    config := &genai.GenerateContentConfig{
-        Tools: []*genai.Tool{
-            {GoogleSearch: &genai.GoogleSearch{}},
-        },
-    }
-    
-    result, err := p.client.Models.GenerateContent(ctx, p.ChatModel, genai.Text(prompt), config)
-
+    response, err := p.deepSeek.GenerateResponse(ctx, systemPrompt, prompt, images)
     if err != nil {
         return fmt.Sprintf("Error generating response: %v", err)
     }
 
-    if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
-        return "Error parsing result"
-    }
-
-    part := result.Candidates[0].Content.Parts[0]
-    if part == nil || part.Text == "" {
-        return "Unexpected response format"
-    }
-
-    log.Println("Generated Response: " + strings.TrimSpace(part.Text))
-    return strings.TrimSpace(part.Text)
+    log.Println("Generated Response: " + response)
+    return response
 }
 
 func (p *LLMProvider) GenerateEmbedding(text string) ([]float32, error) {
@@ -85,7 +81,6 @@ func (p *LLMProvider) GenerateEmbedding(text string) ([]float32, error) {
 
 func buildPrompt(relevantMessages, recentMessages []models.Message, initialPrompt string) string {
     var b strings.Builder
-    b.WriteString("You are responding in a group chat. Keep responses under 2000 characters and sound more human. Do not inclue any markdown formatting and occasionally use emojis and slang.\n\n")
     b.WriteString("Recent messages:\n")
     for _, m := range recentMessages {
         b.WriteString("- ")
