@@ -1,0 +1,107 @@
+name: Deploy Signal Bot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-signal-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Build and restart the Signal bot over SSH
+        env:
+          SSH_HOST: ${{ secrets.SERVER_HOST }}
+          SSH_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/signal_deploy"
+          chmod 600 "$HOME/.ssh/signal_deploy"
+
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" \
+              | tr -d '\r' \
+              | grep -vE '^[[:space:]]*(#|$)' > "$HOME/.ssh/known_hosts" || true
+          fi
+
+          if [ ! -s "$HOME/.ssh/known_hosts" ]; then
+            ssh-keyscan -H "$SSH_HOST" 2>/dev/null \
+              | grep -vE '^[[:space:]]*(#|$)' > "$HOME/.ssh/known_hosts"
+          fi
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          ssh -i "$HOME/.ssh/signal_deploy" \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          APP_DIR="${APP_DIR:-/home/ubuntu/signal}"
+          SESSION="${SESSION:-signal-bot}"
+          LOG_FILE="${LOG_FILE:-$APP_DIR/signal-bot.log}"
+          BRANCH="${BRANCH:-main}"
+
+          export PATH="$PATH:/usr/local/go/bin:/usr/local/bin:/snap/bin:$HOME/go/bin"
+
+          cd "$APP_DIR"
+          PREVIOUS_COMMIT=$(git rev-parse HEAD)
+
+          git fetch --prune origin "$BRANCH"
+          git checkout "$BRANCH"
+          git pull --ff-only origin "$BRANCH"
+
+          if ! go build -o "$APP_DIR/signal-bot.new" .; then
+            echo "Build failed; leaving the existing bot running"
+            git reset --hard "$PREVIOUS_COMMIT"
+            rm -f "$APP_DIR/signal-bot.new"
+            exit 1
+          fi
+
+          if [ -f "$APP_DIR/signal-bot" ]; then
+            cp -f "$APP_DIR/signal-bot" "$APP_DIR/signal-bot.previous"
+          fi
+          mv -f "$APP_DIR/signal-bot.new" "$APP_DIR/signal-bot"
+
+          stop_and_start() {
+            tmux kill-session -t "$SESSION" 2>/dev/null || true
+            tmux new-session -d -s "$SESSION" \
+              "cd '$APP_DIR' && exec ./signal-bot >> '$LOG_FILE' 2>&1" || true
+          }
+
+          stop_and_start
+          sleep 3
+
+          if ! tmux has-session -t "$SESSION" 2>/dev/null \
+            || tmux list-panes -t "$SESSION" -F '#{pane_dead}' | grep -q '^1$'; then
+            echo "New bot process failed to stay running"
+            tail -n 50 "$LOG_FILE" || true
+            echo "Rolling back to $PREVIOUS_COMMIT"
+            git reset --hard "$PREVIOUS_COMMIT"
+
+            if [ -f "$APP_DIR/signal-bot.previous" ]; then
+              mv -f "$APP_DIR/signal-bot.previous" "$APP_DIR/signal-bot"
+            else
+              go build -o "$APP_DIR/signal-bot" . || true
+            fi
+
+            stop_and_start
+            exit 1
+          fi
+
+          rm -f "$APP_DIR/signal-bot.previous"
+          echo "Deployed $(git rev-parse --short HEAD) to tmux session $SESSION"
+          REMOTE_SCRIPT

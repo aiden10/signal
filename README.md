@@ -67,6 +67,18 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com (optional)
 
 Only `DEEPSEEK_API_KEY` needs to be added to switch chat to DeepSeek; the model and base URL already have working defaults. Then run `go mod download` to download the dependencies and `go run .` to start the bot.
 
+# Deployment
+Pushes to `main` trigger `.github/workflows/deploy.yml`. The workflow connects to the server over SSH, updates `/home/ubuntu/signal`, builds the `signal-bot` binary, restarts the `signal-bot` tmux session, and rolls back if the build or startup fails. Logs are written to `signal-bot.log`.
+
+Add these repository secrets before using the workflow:
+
+- `SERVER_HOST` - server hostname or IP
+- `SERVER_USER` - SSH user, for example `ubuntu`
+- `SERVER_SSH_KEY` - private SSH key
+- `SERVER_KNOWN_HOSTS` - optional output of `ssh-keyscan -H <server>`
+
+The workflow can also be run manually from the Actions tab with `workflow_dispatch`.
+
 # Commands
 Commands can be sent by anyone in the chat. They only affect the chat they are sent in, and settings persist across restarts.
 
@@ -88,11 +100,5 @@ Image attachments are read from both the triggering message and the message it q
 Vision requires `DEEPSEEK_MODEL=deepseek-flash` (the default). `deepseek-v4-pro` does not support images. Supported formats are JPEG, PNG, GIF, and WebP. The Signal API must also be running in `json-rpc` mode with attachment downloads enabled, which is the default unless `JSON_RPC_IGNORE_ATTACHMENTS=true` is set.
 
 # Improvements
-## Autonomy 
-Allowing the bot to respond to messages on its own. This could be handled in a couple different ways. The first would be to show the AI each message and ask it if it would like to respond. This could result in it sending too many messages though and could exceed the rate limit depending on the amount of messages. The other option is to do a random number check after each message to determine if the AI will respond or not. But that would feel less like a real person, since you could have times when you directly refer to Gemini and it still doesn't respond. 
-
-## Customization
-Per-chat commands now cover the context size and system prompt. The same approach could be used to switch the DeepSeek model per chat.
-
 ## Web Search
 DeepSeek does not include the Google Search tool that Gemini had. Search could be added back with an external search API and DeepSeek tool calling.

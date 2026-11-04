@@ -2,4 +2,9 @@
 /signal-data
 ssh.key
 
+/signal-bot
+/signal-bot.log
+/signal-bot.new
+/signal-bot.previous
+
 *.db
