@@ -51,7 +51,7 @@ Offline unit tests can be run with:
 # Running
 First you need to setup [this Signal API](https://github.com/bbernhard/signal-cli-rest-api) in json-rpc mode. This involves just running a docker command and then scanning a QR code in the Signal app.
 
-After, create a `.env` file in this project's root directory with the following fields:
+After, copy `.env.example` to `.env` and fill in the values:
 
 ```
 SERVER_URL=http://localhost:8080
