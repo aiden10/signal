@@ -1,19 +1,31 @@
 package handlers
 
 import (
+    "fmt"
     "path/filepath"
+    "strconv"
     "testing"
 
     "signal/db"
 )
 
 type recordingSender struct {
-    messages []string
+    messages    []string
+    timestamp   int64
+    attachments map[string][]byte
 }
 
-func (s *recordingSender) SendMessage(text, groupId string) error {
+func (s *recordingSender) SendMessage(text, groupId string) (string, error) {
     s.messages = append(s.messages, text)
-    return nil
+    s.timestamp++
+    return strconv.FormatInt(s.timestamp, 10), nil
+}
+
+func (s *recordingSender) GetAttachment(id string) ([]byte, error) {
+    if data, ok := s.attachments[id]; ok {
+        return data, nil
+    }
+    return nil, fmt.Errorf("attachment %q not found", id)
 }
 
 func newCommandTestHandler(t *testing.T) (*EventHandler, *recordingSender, *SettingsHandler) {

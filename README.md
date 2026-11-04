@@ -1,6 +1,6 @@
 # About
 
-Signal bot that allows an AI to send messages in the chat by writing `@gemini`. DeepSeek generates the text responses, while Gemini is only used for embeddings. Commands like `/history 50` and `/system-prompt ...` let anyone customize the bot per chat.
+Signal bot that allows an AI to send messages in the chat by writing `@gemini`. DeepSeek generates the text and image responses, while Gemini is only used for embeddings. The bot also replies automatically when someone replies to one of its messages. Commands like `/history 50` and `/system-prompt ...` let anyone customize the bot per chat.
 
 # Structure
 ## main.go
@@ -10,7 +10,7 @@ Entry point, initializes the services and retrieves data from `.env`.
 Provides functions for generating chat responses with DeepSeek and embedding messages as vectors with Gemini. Request logic for the DeepSeek API lives in `llm/deepseek.go`.
 
 ## handlers/history.go
-Provides an interface for storing and retrieving messages. When the bot is prompted, the prompt is turned into a vector and a cosine similarity search is performed against the memory database to find similar messages to be used as context.
+Provides an interface for storing and retrieving messages. When the bot is prompted, the prompt is turned into a vector and a cosine similarity search is performed against the memory database to find similar messages to be used as context. It also stores bot message timestamps and attachment metadata.
 
 ## handlers/events.go
 Contains functions which are called depending on the event that is received
@@ -21,14 +21,17 @@ Parses `/command` messages and applies them before messages are embedded or sent
 ## handlers/settings.go
 Loads and stores per-chat settings such as the context limits and system prompt.
 
+## handlers/images.go
+Fetches image attachments from the Signal API and prepares them for the vision model.
+
 ## handlers/socket.go
 Establishes the socket connection to the API, listens to incoming events and calls the respective functions
 
 ## models/events.go
-Contains models for the various message/event types, and a function for determining which event a message is based on the payload
+Contains models for the various message/event types, including quotes and attachments, and normalizes incoming messages.
 
 ## db/db.go
-Contains database insertion and retrieval functions. Messages are placed into a `memory.db` sqlite database, and per-chat settings are stored in the `settings` table.
+Contains database insertion and retrieval functions. Messages are placed into a `memory.db` sqlite database. Per-chat settings, bot message timestamps, and message attachment metadata are stored in separate tables.
 
 ## testing/
 Because I have this hosted and setup on a remote server, I wanted a way to verify my changes without needing to push anything.
@@ -40,6 +43,10 @@ Allows the following commands to be run to test key functionality before pushing
 - `go test ./testing/... -v -run TestMessageRequiringSearch`
 
 - `go test ./testing/... -v -run TestHandleDataMessage`
+
+Offline unit tests can be run with:
+
+- `go test ./handlers ./llm ./models`
 
 # Running
 First you need to setup [this Signal API](https://github.com/bbernhard/signal-cli-rest-api) in json-rpc mode. This involves just running a docker command and then scanning a QR code in the Signal app.
@@ -73,13 +80,14 @@ Commands can be sent by anyone in the chat. They only affect the chat they are s
 
 Command messages are handled before embedding, so they are not added to the bot's conversation memory.
 
+# Replies and Images
+When the bot sends a message, it stores the returned Signal timestamp. A reply is treated as directed at the bot only when its quoted message timestamp matches one of those stored bot messages. This prevents replies to other messages sent from the same phone number from triggering the bot.
+
+Image attachments are read from both the triggering message and the message it quotes. Quoted images are resolved from attachment metadata stored when the original message was received, with the quoted thumbnail as a fallback. Images are passed to DeepSeek as base64 data URLs.
+
+Vision requires `DEEPSEEK_MODEL=deepseek-flash` (the default). `deepseek-v4-pro` does not support images. Supported formats are JPEG, PNG, GIF, and WebP. The Signal API must also be running in `json-rpc` mode with attachment downloads enabled, which is the default unless `JSON_RPC_IGNORE_ATTACHMENTS=true` is set.
+
 # Improvements
-## Images
-Right now, I don't think it's able to see images. I don't know how this would work though. First, we'd need to get the image itself from the message, and then pass that to a vision model, and get the description of the image from that. However, I don't know if it's possible to get the image or if this approach of getting a description would work well.
-
-## Replies
-On Instagram, Meta AI will automatically reply if you reply to one of its messages. Also if you reply to a message and include `@gemini`, it should instead use the message you replied to as the "prompt message". This would be convenient, but with the bot using my phone number it means that I would likely need to record all of the bot's messages and check the replied message against those. I also don't know if the API differentiates between replies and regular messages or not.
-
 ## Autonomy 
 Allowing the bot to respond to messages on its own. This could be handled in a couple different ways. The first would be to show the AI each message and ask it if it would like to respond. This could result in it sending too many messages though and could exceed the rate limit depending on the amount of messages. The other option is to do a random number check after each message to determine if the AI will respond or not. But that would feel less like a real person, since you could have times when you directly refer to Gemini and it still doesn't respond. 
 

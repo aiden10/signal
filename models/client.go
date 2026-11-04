@@ -4,8 +4,10 @@ import (
     "bytes"
     "encoding/json"
     "fmt"
+    "io"
     "log"
     "net/http"
+    "net/url"
     "strings"
     "sync"
     "time"
@@ -34,7 +36,7 @@ func NewSignalClient(baseURL, phoneNumber, targetGroup string, logger *log.Logge
     }
 }
 
-func (c *SignalClient) SendMessage(text, groupId string) error {
+func (c *SignalClient) SendMessage(text, groupId string) (string, error) {
     body := map[string]any{
         "message":    text,
         "number":     c.PhoneNumber,
@@ -43,32 +45,63 @@ func (c *SignalClient) SendMessage(text, groupId string) error {
 
     raw, err := json.Marshal(body)
     if err != nil {
-        return fmt.Errorf("marshal body: %w", err)
+        return "", fmt.Errorf("marshal body: %w", err)
     }
 
-    url := c.BaseURL + "/v2/send"
+    endpoint := c.BaseURL + "/v2/send"
 
-    req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
+    req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(raw))
 
     if err != nil {
-        return fmt.Errorf("create request: %w", err)
+        return "", fmt.Errorf("create request: %w", err)
     }
     
     req.Header.Set("Content-Type", "application/json")
 
-    log.Printf("Attempting to send message to URL: %s", url)
+    log.Printf("Attempting to send message to URL: %s", endpoint)
     log.Printf("Body: %s", string(raw))
 
     resp, err := c.HTTPClient.Do(req)
     
     if err != nil {
-        return fmt.Errorf("do request: %w", err)
+        return "", fmt.Errorf("do request: %w", err)
     }
     defer resp.Body.Close()
 
     if resp.StatusCode >= 300 {
-        return fmt.Errorf("send failed: %s", resp.Status)
+        return "", fmt.Errorf("send failed: %s", resp.Status)
     }
 
-    return nil
+    var result struct {
+        Timestamp string `json:"timestamp"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        log.Printf("failed to decode send response: %v", err)
+        return "", nil
+    }
+
+    return result.Timestamp, nil
+}
+
+func (c *SignalClient) GetAttachment(id string) ([]byte, error) {
+    if strings.TrimSpace(id) == "" {
+        return nil, fmt.Errorf("attachment id is empty")
+    }
+
+    endpoint := c.BaseURL + "/v1/attachments/" + url.PathEscape(id)
+    resp, err := c.HTTPClient.Get(endpoint)
+    if err != nil {
+        return nil, fmt.Errorf("get attachment: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode >= 300 {
+        return nil, fmt.Errorf("get attachment failed: %s", resp.Status)
+    }
+
+    data, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("read attachment: %w", err)
+    }
+    return data, nil
 }

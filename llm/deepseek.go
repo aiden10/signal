@@ -3,12 +3,15 @@ package llm
 import (
     "bytes"
     "context"
+    "encoding/base64"
     "encoding/json"
     "fmt"
     "io"
     "net/http"
     "strings"
     "time"
+
+    "signal/models"
 )
 
 const (
@@ -23,20 +26,35 @@ type DeepSeekClient struct {
     httpClient *http.Client
 }
 
-type deepSeekMessage struct {
+type deepSeekRequestMessage struct {
+    Role    string `json:"role"`
+    Content any    `json:"content"`
+}
+
+type deepSeekResponseMessage struct {
     Role    string `json:"role"`
     Content string `json:"content"`
 }
 
+type deepSeekContentPart struct {
+    Type     string            `json:"type"`
+    Text     string            `json:"text,omitempty"`
+    ImageURL *deepSeekImageURL `json:"image_url,omitempty"`
+}
+
+type deepSeekImageURL struct {
+    URL string `json:"url"`
+}
+
 type deepSeekRequest struct {
-    Model    string            `json:"model"`
-    Messages []deepSeekMessage `json:"messages"`
-    Stream   bool              `json:"stream"`
+    Model    string                  `json:"model"`
+    Messages []deepSeekRequestMessage `json:"messages"`
+    Stream   bool                    `json:"stream"`
 }
 
 type deepSeekResponse struct {
     Choices []struct {
-        Message deepSeekMessage `json:"message"`
+        Message deepSeekResponseMessage `json:"message"`
     } `json:"choices"`
 }
 
@@ -59,17 +77,40 @@ func NewDeepSeekClient(apiKey, model, baseURL string) *DeepSeekClient {
     }
 }
 
-func (c *DeepSeekClient) GenerateResponse(ctx context.Context, systemPrompt, prompt string) (string, error) {
-    messages := make([]deepSeekMessage, 0, 2)
+func (c *DeepSeekClient) GenerateResponse(ctx context.Context, systemPrompt, prompt string, images []models.Image) (string, error) {
+    messages := make([]deepSeekRequestMessage, 0, 2)
     if strings.TrimSpace(systemPrompt) != "" {
-        messages = append(messages, deepSeekMessage{
+        messages = append(messages, deepSeekRequestMessage{
             Role:    "system",
             Content: systemPrompt,
         })
     }
-    messages = append(messages, deepSeekMessage{
+
+    var content any = prompt
+    if len(images) > 0 {
+        parts := make([]deepSeekContentPart, 0, len(images)+1)
+        parts = append(parts, deepSeekContentPart{
+            Type: "text",
+            Text: prompt,
+        })
+        for _, image := range images {
+            contentType := strings.TrimSpace(image.ContentType)
+            if contentType == "" {
+                contentType = http.DetectContentType(image.Data)
+            }
+            parts = append(parts, deepSeekContentPart{
+                Type: "image_url",
+                ImageURL: &deepSeekImageURL{
+                    URL: fmt.Sprintf("data:%s;base64,%s", contentType, base64.StdEncoding.EncodeToString(image.Data)),
+                },
+            })
+        }
+        content = parts
+    }
+
+    messages = append(messages, deepSeekRequestMessage{
         Role:    "user",
-        Content: prompt,
+        Content: content,
     })
 
     body, err := json.Marshal(deepSeekRequest{
@@ -110,10 +151,10 @@ func (c *DeepSeekClient) GenerateResponse(ctx context.Context, systemPrompt, pro
         return "", fmt.Errorf("deepseek returned no choices")
     }
 
-    content := strings.TrimSpace(result.Choices[0].Message.Content)
-    if content == "" {
+    responseText := strings.TrimSpace(result.Choices[0].Message.Content)
+    if responseText == "" {
         return "", fmt.Errorf("deepseek returned an empty response")
     }
 
-    return content, nil
+    return responseText, nil
 }

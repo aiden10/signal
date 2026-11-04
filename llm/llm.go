@@ -45,12 +45,12 @@ func NewLLMProvider(ctx context.Context, config Config) (*LLMProvider, error) {
     }, nil
 }
 
-func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models.Message, systemPrompt, initialPrompt string) string {
+func (p *LLMProvider) GenerateResponse(relevantMessages, recentMessages []models.Message, images []models.Image, systemPrompt, initialPrompt string) string {
     ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
     defer cancel()
 
     prompt := buildPrompt(relevantMessages, recentMessages, initialPrompt)
-    response, err := p.deepSeek.GenerateResponse(ctx, systemPrompt, prompt)
+    response, err := p.deepSeek.GenerateResponse(ctx, systemPrompt, prompt, images)
     if err != nil {
         return fmt.Sprintf("Error generating response: %v", err)
     }
