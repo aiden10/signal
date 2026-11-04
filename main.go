@@ -53,7 +53,13 @@ func main() {
     }
 
     ctx := context.Background()
-    llm, err := llm.NewLLMProvider(ctx, os.Getenv("GEMINI_API_KEY"), os.Getenv("LLM_MODEL"), os.Getenv("EMBEDDING_MODEL"))
+    llmProvider, err := llm.NewLLMProvider(ctx, llm.Config{
+        GeminiAPIKey:    os.Getenv("GEMINI_API_KEY"),
+        DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
+        DeepSeekModel:   os.Getenv("DEEPSEEK_MODEL"),
+        DeepSeekBaseURL: os.Getenv("DEEPSEEK_BASE_URL"),
+        EmbeddingModel:  os.Getenv("EMBEDDING_MODEL"),
+    })
     if err != nil {
         logger.Fatal(err)
     }
@@ -66,8 +72,9 @@ func main() {
         log.Fatal("Failed to migrate database: ", err)
     }
     history := handlers.NewHistoryHandler(database)
+    settings := handlers.NewSettingsHandler(database)
     sender := models.NewSignalClient(serverURL, phone, targetGroup, logger)
-    eventHandler := handlers.NewEventHandler(history, llm, sender, targetGroup, phone)
+    eventHandler := handlers.NewEventHandler(history, settings, llmProvider, sender, targetGroup, phone)
     socketHandler := handlers.NewSocketHandler(socketURL, eventHandler, logger)
 
     logger.Println("starting socket handler...")

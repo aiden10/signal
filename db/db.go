@@ -46,7 +46,23 @@ func (db *Database) Migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `)
+    if err != nil {
+        return err
+    }
+
+    _, err = db.conn.Exec(`
+        CREATE TABLE IF NOT EXISTS settings (
+            group_id TEXT NOT NULL,
+            setting_key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (group_id, setting_key)
+        )
+    `)
     return err
+}
+
+func (db *Database) Close() error {
+    return db.conn.Close()
 }
 
 func (db *Database) InsertMemory(groupId, author, content string, vector []float32) error {
@@ -97,6 +113,45 @@ func (db *Database) GetAllMemories(groupId string) ([]Memory, error) {
         memories = append(memories, m)
     }
     return memories, nil
+}
+
+func (db *Database) GetSettings(groupId string) (map[string]string, error) {
+    rows, err := db.conn.Query(
+        "SELECT setting_key, value FROM settings WHERE group_id = ?", groupId,
+    )
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    settings := make(map[string]string)
+    for rows.Next() {
+        var key, value string
+        if err := rows.Scan(&key, &value); err != nil {
+            return nil, err
+        }
+        settings[key] = value
+    }
+    return settings, rows.Err()
+}
+
+func (db *Database) SetSetting(groupId, key, value string) error {
+    _, err := db.conn.Exec(`
+        INSERT INTO settings (group_id, setting_key, value) VALUES (?, ?, ?)
+        ON CONFLICT(group_id, setting_key) DO UPDATE SET value = excluded.value
+    `, groupId, key, value)
+    if err != nil {
+        log.Printf("Error saving setting: %v", err)
+    }
+    return err
+}
+
+func (db *Database) DeleteSettings(groupId string) error {
+    _, err := db.conn.Exec("DELETE FROM settings WHERE group_id = ?", groupId)
+    if err != nil {
+        log.Printf("Error deleting settings: %v", err)
+    }
+    return err
 }
 
 func (db *Database) GetRecentMessages(groupId string, n int) []models.Message {

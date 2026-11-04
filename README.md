@@ -1,19 +1,25 @@
 # About
 
-Signal bot that allows Gemini to send messages in the chat by writing `@gemini`  
+Signal bot that allows an AI to send messages in the chat by writing `@gemini`. DeepSeek generates the text responses, while Gemini is only used for embeddings. Commands like `/history 50` and `/system-prompt ...` let anyone customize the bot per chat.
 
 # Structure
 ## main.go
 Entry point, initializes the services and retrieves data from `.env`.
 
 ## llm.go
-Provides functions for interacting with the LLM and embedding messages as vectors in the memory database. 
+Provides functions for generating chat responses with DeepSeek and embedding messages as vectors with Gemini. Request logic for the DeepSeek API lives in `llm/deepseek.go`.
 
 ## handlers/history.go
-Provides an interface for storing and retrieving messages. When Gemini is propmted, the prompt is turned into a vector and a cosine similarity search is performed against the memory database to find similar messages to be used as context.
+Provides an interface for storing and retrieving messages. When the bot is prompted, the prompt is turned into a vector and a cosine similarity search is performed against the memory database to find similar messages to be used as context.
 
 ## handlers/events.go
 Contains functions which are called depending on the event that is received
+
+## handlers/commands.go
+Parses `/command` messages and applies them before messages are embedded or sent to the LLM.
+
+## handlers/settings.go
+Loads and stores per-chat settings such as the context limits and system prompt.
 
 ## handlers/socket.go
 Establishes the socket connection to the API, listens to incoming events and calls the respective functions
@@ -22,7 +28,7 @@ Establishes the socket connection to the API, listens to incoming events and cal
 Contains models for the various message/event types, and a function for determining which event a message is based on the payload
 
 ## db/db.go
-Contains database insertion and retrieval functions. Messages are placed into a `memory.db` sqlite database.
+Contains database insertion and retrieval functions. Messages are placed into a `memory.db` sqlite database, and per-chat settings are stored in the `settings` table.
 
 ## testing/
 Because I have this hosted and setup on a remote server, I wanted a way to verify my changes without needing to push anything.
@@ -43,13 +49,29 @@ After, create a `.env` file in this project's root directory with the following 
 ```
 SERVER_URL=http://localhost:8080
 SOCKET_URL=ws://localhost:8080/v1/receive/{phone_number}
-GROUP_ID: the regular "id" of the target chat (can be found by going to the /v1/groups/{phone_number} endpoint)
+GROUP_ID=the regular "id" of the target chat (can be found by going to the /v1/groups/{phone_number} endpoint)
 PHONE_NUMBER=+11234567 (use your phone number and include the + and country code)
-GEMINI_API_KEY=
-GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent (can replace with desired model)
+GEMINI_API_KEY= (used for embeddings)
+DEEPSEEK_API_KEY= (used for chat)
+EMBEDDING_MODEL=gemini-embedding-001 (can replace with desired embedding model)
+DEEPSEEK_MODEL=deepseek-flash (optional, defaults to deepseek-flash)
+DEEPSEEK_BASE_URL=https://api.deepseek.com (optional)
 ```
 
-Then run `go mod download` to download the dependencies and `go run .` to start the bot.
+Only `DEEPSEEK_API_KEY` needs to be added to switch chat to DeepSeek; the model and base URL already have working defaults. Then run `go mod download` to download the dependencies and `go run .` to start the bot.
+
+# Commands
+Commands can be sent by anyone in the chat. They only affect the chat they are sent in, and settings persist across restarts.
+
+- `/history <n>` - number of recent messages sent to the AI (default 20, max 200)
+- `/relevant <n>` - number of semantically similar messages sent to the AI (default 10, max 200)
+- `/system-prompt <prompt>` - set the system prompt, or view it without arguments
+- `/settings` - show the current settings
+- `/reset` - restore the default settings
+- `/help` - list the available commands
+- `/ping` - check whether the bot is online
+
+Command messages are handled before embedding, so they are not added to the bot's conversation memory.
 
 # Improvements
 ## Images
@@ -62,4 +84,7 @@ On Instagram, Meta AI will automatically reply if you reply to one of its messag
 Allowing the bot to respond to messages on its own. This could be handled in a couple different ways. The first would be to show the AI each message and ask it if it would like to respond. This could result in it sending too many messages though and could exceed the rate limit depending on the amount of messages. The other option is to do a random number check after each message to determine if the AI will respond or not. But that would feel less like a real person, since you could have times when you directly refer to Gemini and it still doesn't respond. 
 
 ## Customization
-Allow for customizing certain properties with chat commands. For example updating the context window size, and the "system prompt". 
+Per-chat commands now cover the context size and system prompt. The same approach could be used to switch the DeepSeek model per chat.
+
+## Web Search
+DeepSeek does not include the Google Search tool that Gemini had. Search could be added back with an external search API and DeepSeek tool calling.

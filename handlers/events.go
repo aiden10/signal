@@ -9,7 +9,7 @@ import (
 )
 
 type LLMClient interface {
-    GenerateResponse(relevantMessages, recentMessages []models.Message, initialPrompt string) string
+    GenerateResponse(relevantMessages, recentMessages []models.Message, systemPrompt, initialPrompt string) string
     GenerateEmbedding(text string) ([]float32, error)
 }
 
@@ -18,18 +18,22 @@ type MessageSender interface {
 }
 
 type EventHandler struct {
-    History *HistoryHandler
-    LLM     LLMClient
-    Sender  MessageSender
+    History  *HistoryHandler
+    Settings *SettingsHandler
+    Commands *CommandHandler
+    LLM      LLMClient
+    Sender   MessageSender
     targetGroup string
     phone string
 }
 
-func NewEventHandler(history *HistoryHandler, llm LLMClient, sender MessageSender, targetGroup, phone string) *EventHandler {
+func NewEventHandler(history *HistoryHandler, settings *SettingsHandler, llm LLMClient, sender MessageSender, targetGroup, phone string) *EventHandler {
     return &EventHandler{
-        History: history,
-        LLM:     llm,
-        Sender:  sender,
+        History:  history,
+        Settings: settings,
+        Commands: NewCommandHandler(settings),
+        LLM:      llm,
+        Sender:   sender,
         targetGroup: targetGroup,
         phone: phone,
     }
@@ -57,6 +61,18 @@ func (e *EventHandler) HandleDataMessage(groupId, author, text string, inTest bo
         return nil
     }
 
+    if command, ok := ParseCommand(text); ok {
+        if err != nil {
+            log.Printf("Error finding sending id: %v", err)
+            return err
+        }
+
+        response, _ := e.Commands.Handle(groupId, command)
+        log.Printf("Handled command /%s", command.Name)
+        e.SendMessage(sendingId, "Bot", response)
+        return nil
+    }
+
     var vector []float32
     log.Printf("Generating embedding")
     if strings.TrimSpace(text) != "" {
@@ -74,9 +90,10 @@ func (e *EventHandler) HandleDataMessage(groupId, author, text string, inTest bo
             log.Printf("Error finding sending id: %v", err)
             return err
         }
-        relevant, recent := e.History.GetContext(groupId, vector)
+        settings := e.Settings.Get(groupId)
+        relevant, recent := e.History.GetContext(groupId, vector, settings.HistoryLimit, settings.RelevantLimit)
         log.Printf("Generating response with %d relevant messages and %d recent messages", len(relevant), len(recent))
-        response := e.LLM.GenerateResponse(relevant, recent, text)
+        response := e.LLM.GenerateResponse(relevant, recent, settings.SystemPrompt, text)
 
         geminiResponseVector, geminiEmbeddingError := e.LLM.GenerateEmbedding(response)
         if geminiEmbeddingError != nil {

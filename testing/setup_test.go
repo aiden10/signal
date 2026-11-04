@@ -90,14 +90,21 @@ func newTestSuite(t *testing.T) *TestSuite {
     }    
     
     history := handlers.NewHistoryHandler(database)
-    llmProvider, err := llm.NewLLMProvider(ctx, os.Getenv("GEMINI_API_KEY"), os.Getenv("LLM_MODEL"), os.Getenv("EMBEDDING_MODEL"))
+    settings := handlers.NewSettingsHandler(database)
+    llmProvider, err := llm.NewLLMProvider(ctx, llm.Config{
+        GeminiAPIKey:    os.Getenv("GEMINI_API_KEY"),
+        DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
+        DeepSeekModel:   os.Getenv("DEEPSEEK_MODEL"),
+        DeepSeekBaseURL: os.Getenv("DEEPSEEK_BASE_URL"),
+        EmbeddingModel:  os.Getenv("EMBEDDING_MODEL"),
+    })
     
     if err != nil {
         t.Fatalf("failed to create LLM provider: %v", err)
     }
     
     return &TestSuite{
-        EventHandler: handlers.NewEventHandler(history, llmProvider, sender, targetGroup, phone),
+        EventHandler: handlers.NewEventHandler(history, settings, llmProvider, sender, targetGroup, phone),
         Sender:       sender,
         History:      history,
         LLM:          llmProvider,

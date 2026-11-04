@@ -37,14 +37,21 @@ func cosineSimilarity(a, b []float32) float64 {
     return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-func (h *HistoryHandler) GetContext(groupId string, queryVec []float32) ([]models.Message, []models.Message) {
+func (h *HistoryHandler) GetContext(groupId string, queryVec []float32, recentLimit, relevantLimit int) ([]models.Message, []models.Message) {
+    var recent []models.Message
+    if recentLimit > 0 {
+        recent = h.database.GetRecentMessages(groupId, recentLimit)
+    }
+
+    if relevantLimit <= 0 {
+        return nil, recent
+    }
+
     memories, err := h.database.GetAllMemories(groupId)
     if err != nil {
         log.Printf("Error getting memories: %v", err)
         memories = []db.Memory{}
     }
-
-    recent := h.database.GetRecentMessages(groupId, 20)
 
     type scored struct {
         msg   models.Message
@@ -70,7 +77,7 @@ func (h *HistoryHandler) GetContext(groupId string, queryVec []float32) ([]model
     })
 
     var relevant []models.Message
-    for i := 0; i < 10 && i < len(results); i++ {
+    for i := 0; i < relevantLimit && i < len(results); i++ {
         relevant = append(relevant, results[i].msg)
     }
 
